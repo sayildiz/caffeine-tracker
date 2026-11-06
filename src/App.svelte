@@ -3,11 +3,12 @@
   type Store = { doses: Dose[]; halfLife: number };
 
   const PRESETS = [
-    { name: "Energy Drink", volume: 250, mg100: 32, tint: "#c9f24d" },
-    { name: "Energy Drink", volume: 330, mg100: 32, tint: "#c9f24d" },
-    { name: "Energy Drink", volume: 500, mg100: 32, tint: "#c9f24d" },
-    { name: "Club-Mate", volume: 500, mg100: 20, tint: "#8fe08a" },
-    { name: "fritz-kola", volume: 330, mg100: 25, tint: "#ff9d6b" },
+    { name: "Energy Drink", volume: 250, mg100: 32, tint: "#c4b5fd" },
+    { name: "Energy Drink", volume: 330, mg100: 32, tint: "#c4b5fd" },
+    { name: "Energy Drink", volume: 500, mg100: 32, tint: "#c4b5fd" },
+    { name: "Club-Mate", volume: 500, mg100: 20, tint: "#5eead4" },
+    { name: "fritz-kola", volume: 330, mg100: 25, tint: "#fb923c" },
+    { name: "Cola", volume: 330, mg100: 10.3, tint: "#f87171" },
   ];
 
   const KEY = "caffeine-tracker-v1";
@@ -330,7 +331,7 @@
 
 <div class="wrap">
   <header>
-    <div class="brand"><b>caffeine</b><span class="dot">·</span>live</div>
+    <div class="brand"><span class="mark"></span>caffeine<span class="k">live</span></div>
     <div class="live"><i></i> tracking</div>
   </header>
 
@@ -369,19 +370,19 @@
          onpointermove={onHover} onpointerdown={onHover} onpointerleave={() => (hover = null)}>
       <defs>
         <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#c9f24d" stop-opacity="0.28" />
-          <stop offset="100%" stop-color="#c9f24d" stop-opacity="0" />
+          <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.28" />
+          <stop offset="100%" stop-color="var(--accent)" stop-opacity="0" />
         </linearGradient>
       </defs>
       {#each chart.grid as g}
-        <line x1="0" x2={chart.W} y1={g.y} y2={g.y} stroke="#20261f" stroke-width="1" />
+        <line x1="0" x2={chart.W} y1={g.y} y2={g.y} stroke="var(--line)" stroke-width="1" />
         <text x="2" y={g.y - 4}>{g.mg.toFixed(0)}</text>
       {/each}
-      <line x1="0" x2={chart.W} y1={chart.y0} y2={chart.y0} stroke="#2c342a" stroke-width="1" />
+      <line x1="0" x2={chart.W} y1={chart.y0} y2={chart.y0} stroke="var(--line2)" stroke-width="1" />
       <path d={chart.area} fill="url(#g)" />
-      <path d={chart.line} fill="none" stroke="#c9f24d" stroke-width="2" stroke-linecap="round" />
-      <circle cx="0" cy={chart.dotY} r="4.5" fill="#c9f24d" />
-      <circle cx="0" cy={chart.dotY} r="9" fill="#c9f24d" opacity="0.18" />
+      <path d={chart.line} fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" />
+      <circle cx="0" cy={chart.dotY} r="4.5" fill="var(--accent)" />
+      <circle cx="0" cy={chart.dotY} r="9" fill="var(--accent)" opacity="0.18" />
       <text x="0" y={chart.H - 4}>now</text>
       <text x={chart.W * 0.25} y={chart.H - 4} text-anchor="middle">+3h</text>
       <text x={chart.W * 0.5} y={chart.H - 4} text-anchor="middle">+6h</text>
@@ -389,10 +390,10 @@
       <text x={chart.W} y={chart.H - 4} text-anchor="end">+12h</text>
       {#if hover}
         <line x1={hover.vx} x2={hover.vx} y1="0" y2={chart.H - chart.padB}
-              stroke="#c9f24d" stroke-width="1" opacity="0.4" stroke-dasharray="3 3" />
+              stroke="var(--accent)" stroke-width="1" opacity="0.4" stroke-dasharray="3 3" />
         <line x1="0" x2={chart.W} y1={hover.vy} y2={hover.vy}
-              stroke="#c9f24d" stroke-width="1" opacity="0.22" stroke-dasharray="3 3" />
-        <circle cx={hover.vx} cy={hover.vy} r="4.5" fill="#0a0c0b" stroke="#c9f24d" stroke-width="2" />
+              stroke="var(--accent)" stroke-width="1" opacity="0.22" stroke-dasharray="3 3" />
+        <circle cx={hover.vx} cy={hover.vy} r="4.5" fill="#141020" stroke="var(--accent)" stroke-width="2" />
       {/if}
     </svg>
     {#if hover}
@@ -424,26 +425,26 @@
              onpointermove={onHistHover} onpointerdown={onHistHover} onpointerleave={() => (histHover = null)}>
           <defs>
             <linearGradient id="gh" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#c9f24d" stop-opacity="0.24" />
-              <stop offset="100%" stop-color="#c9f24d" stop-opacity="0" />
+              <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.24" />
+              <stop offset="100%" stop-color="var(--accent)" stop-opacity="0" />
             </linearGradient>
           </defs>
           {#each hist.grid as g}
-            <line x1="0" x2={hist.W} y1={g.y} y2={g.y} stroke="#20261f" stroke-width="1" />
+            <line x1="0" x2={hist.W} y1={g.y} y2={g.y} stroke="var(--line)" stroke-width="1" />
             <text x="2" y={g.y - 4}>{g.mg.toFixed(0)}</text>
           {/each}
-          <line x1="0" x2={hist.W} y1={hist.y0} y2={hist.y0} stroke="#2c342a" stroke-width="1" />
+          <line x1="0" x2={hist.W} y1={hist.y0} y2={hist.y0} stroke="var(--line2)" stroke-width="1" />
           <path d={hist.area} fill="url(#gh)" />
-          <path d={hist.line} fill="none" stroke="#c9f24d" stroke-width="1.8" stroke-linecap="round" />
+          <path d={hist.line} fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" />
           {#each hist.peaks as p (p.id)}
             <line x1={hist.x(p.at)} x2={hist.x(p.at)} y1={hist.y(p.mg)} y2={hist.y0}
-                  stroke="#c9f24d" stroke-width="1" opacity="0.16" stroke-dasharray="2 3" />
-            <circle cx={hist.x(p.at)} cy={hist.y(p.mg)} r="3" fill="#0a0c0b" stroke="#c9f24d" stroke-width="1.6" />
+                  stroke="var(--accent)" stroke-width="1" opacity="0.16" stroke-dasharray="2 3" />
+            <circle cx={hist.x(p.at)} cy={hist.y(p.mg)} r="3" fill="#141020" stroke="var(--accent)" stroke-width="1.6" />
           {/each}
           {#if histHover}
             <line x1={histHover.vx} x2={histHover.vx} y1="0" y2={hist.H - hist.padB}
-                  stroke="#c9f24d" stroke-width="1" opacity="0.4" stroke-dasharray="3 3" />
-            <circle cx={histHover.vx} cy={histHover.vy} r="4.5" fill="#0a0c0b" stroke="#c9f24d" stroke-width="2" />
+                  stroke="var(--accent)" stroke-width="1" opacity="0.4" stroke-dasharray="3 3" />
+            <circle cx={histHover.vx} cy={histHover.vy} r="4.5" fill="#141020" stroke="var(--accent)" stroke-width="2" />
           {/if}
           <text x="0" y={hist.H - 4}>{fmtHistTime(hist.start)}</text>
           <text x={hist.W * 0.5} y={hist.H - 4} text-anchor="middle">{fmtHistTime(hist.start + hist.ms * 0.5)}</text>
@@ -502,10 +503,13 @@
   <div class="grid">
     {#each PRESETS as p}
       <button class="drink" onclick={() => addDrink(p.name, p.volume, p.mg100)}>
+        <span class="plus">+</span>
         <div class="nm"><span class="swatch" style="background:{p.tint}"></span>{p.name}</div>
-        <div class="sz">{p.volume} ml · {p.mg100} mg / 100 ml</div>
-        <div class="mg">{((p.volume / 100) * p.mg100).toFixed(1)}<small>mg</small></div>
-        <div class="ratio">caffeine added</div>
+        <div class="sz">{p.volume} ml · {p.mg100} mg/100 ml</div>
+        <div class="mgrow">
+          <span class="mg">{((p.volume / 100) * p.mg100).toFixed(1)}</span>
+          <span class="unit2">mg</span>
+        </div>
       </button>
     {/each}
   </div>

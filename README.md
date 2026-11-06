@@ -4,7 +4,7 @@ Real-time caffeine tracker. Tap a drink, watch the mg count in your body decay l
 
 **https://sametyildiz.dev/caffeine/**
 
-![dark acid-green UI with a live mg readout and a 12-hour decay curve](./screenshot.png)
+![dark violet UI with a live mg readout and a 12-hour decay curve](./screenshot.png)
 
 ## How it works
 
