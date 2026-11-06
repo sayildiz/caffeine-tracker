@@ -212,6 +212,12 @@ header {
   margin-bottom: 8px;
 }
 
+.headLeft {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
 /* ---------- charts ---------- */
 .chartWrap { position: relative; }
 

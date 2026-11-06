@@ -1,6 +1,6 @@
 <script lang="ts">
   type Dose = { id: string; name: string; volume: number; mg: number; at: number };
-  type Store = { doses: Dose[]; halfLife: number };
+  type Store = { doses: Dose[]; halfLife: number; horizon: number };
 
   const PRESETS = [
     { name: "Energy Drink", volume: 250, mg100: 32, tint: "#c4b5fd" },
@@ -19,13 +19,13 @@
   function loadStore(): Store {
     try {
       const raw = localStorage.getItem(KEY);
-      if (!raw) return { doses: [], halfLife: 5 };
+      if (!raw) return { doses: [], halfLife: 5, horizon: 12 };
       const p = JSON.parse(raw) as Store;
       const cutoff = Date.now() - KEEP_DAYS * 24 * HOUR;
       const doses = (p.doses ?? []).filter((d) => d.at > cutoff);
-      return { doses, halfLife: p.halfLife ?? 5 };
+      return { doses, halfLife: p.halfLife ?? 5, horizon: p.horizon === 24 ? 24 : 12 };
     } catch {
-      return { doses: [], halfLife: 5 };
+      return { doses: [], halfLife: 5, horizon: 12 };
     }
   }
 
@@ -33,6 +33,7 @@
 
   let doses = $state<Dose[]>(initial.doses);
   let halfLife = $state<number>(initial.halfLife);
+  let horizon = $state<number>(initial.horizon);
   let now = $state(Date.now());
   let toast = $state("");
   let toastTimer: ReturnType<typeof setTimeout>;
@@ -64,7 +65,7 @@
 
   // ---- persistence
   $effect(() => {
-    const data: Store = { doses, halfLife };
+    const data: Store = { doses, halfLife, horizon };
     localStorage.setItem(KEY, JSON.stringify(data));
   });
 
@@ -124,7 +125,6 @@
   }
 
   // ---- chart
-  const HORIZON = 12;
   const chart = $derived.by(() => {
     const W = 640, H = 150, padB = 18, top = 8;
     // snap the ceiling to a round step so edits (add / remove a drink) visibly
@@ -132,12 +132,12 @@
     const raw = Math.max(total * 1.02, 5);
     const step = [5, 10, 20, 25, 50, 100, 200, 400].find((s) => raw <= s * 5) ?? 500;
     const ymax = Math.ceil(raw / step) * step;
-    const x = (h: number) => (h / HORIZON) * W;
+    const x = (h: number) => (h / horizon) * W;
     const y = (mg: number) => top + (1 - mg / ymax) * (H - padB - top);
     const pts: string[] = [];
     const N = 120;
     for (let i = 0; i <= N; i++) {
-      const h = (i / N) * HORIZON;
+      const h = (i / N) * horizon;
       const mg = total * Math.pow(0.5, h / halfLife);
       pts.push(`${x(h).toFixed(1)},${y(mg).toFixed(1)}`);
     }
@@ -155,7 +155,7 @@
     const r = el.getBoundingClientRect();
     if (!r.width) return;
     const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
-    const h = frac * HORIZON;
+    const h = frac * horizon;
     const mg = total * Math.pow(0.5, h / halfLife);
     hover = { h, mg, ts: now + h * HOUR, frac, vx: chart.x(h), vy: chart.y(mg) };
   }
@@ -362,7 +362,14 @@
 
   <div class="card">
     <div class="cardHead">
-      <span class="label">next 12 hours</span>
+      <div class="headLeft">
+        <span class="label">next {horizon} hours</span>
+        <div class="tabs">
+          {#each [12, 24] as h}
+            <button class="tab {horizon === h ? 'on' : ''}" onclick={() => (horizon = h)}>{h}h</button>
+          {/each}
+        </div>
+      </div>
       <span class="label">peak {total.toFixed(0)} mg</span>
     </div>
     <div class="chartWrap">
@@ -384,10 +391,10 @@
       <circle cx="0" cy={chart.dotY} r="4.5" fill="var(--accent)" />
       <circle cx="0" cy={chart.dotY} r="9" fill="var(--accent)" opacity="0.18" />
       <text x="0" y={chart.H - 4}>now</text>
-      <text x={chart.W * 0.25} y={chart.H - 4} text-anchor="middle">+3h</text>
-      <text x={chart.W * 0.5} y={chart.H - 4} text-anchor="middle">+6h</text>
-      <text x={chart.W * 0.75} y={chart.H - 4} text-anchor="middle">+9h</text>
-      <text x={chart.W} y={chart.H - 4} text-anchor="end">+12h</text>
+      {#each [0.25, 0.5, 0.75] as f}
+        <text x={chart.W * f} y={chart.H - 4} text-anchor="middle">+{horizon * f}h</text>
+      {/each}
+      <text x={chart.W} y={chart.H - 4} text-anchor="end">+{horizon}h</text>
       {#if hover}
         <line x1={hover.vx} x2={hover.vx} y1="0" y2={chart.H - chart.padB}
               stroke="var(--accent)" stroke-width="1" opacity="0.4" stroke-dasharray="3 3" />
