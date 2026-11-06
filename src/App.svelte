@@ -126,7 +126,11 @@
   const HORIZON = 12;
   const chart = $derived.by(() => {
     const W = 640, H = 150, padB = 18, top = 8;
-    const ymax = Math.max(total * 1.02, 5);
+    // snap the ceiling to a round step so edits (add / remove a drink) visibly
+    // move the line instead of every re-render rescaling it to the same shape
+    const raw = Math.max(total * 1.02, 5);
+    const step = [5, 10, 20, 25, 50, 100, 200, 400].find((s) => raw <= s * 5) ?? 500;
+    const ymax = Math.ceil(raw / step) * step;
     const x = (h: number) => (h / HORIZON) * W;
     const y = (mg: number) => top + (1 - mg / ymax) * (H - padB - top);
     const pts: string[] = [];
@@ -281,11 +285,30 @@
     toastTimer = setTimeout(() => (toast = ""), 2200);
   }
 
+  // removing a drink can be a misclick, so keep the last one around for an undo
+  let undoDose = $state<Dose | null>(null);
+  let undoTimer: ReturnType<typeof setTimeout>;
+
   function remove(id: string) {
+    const gone = doses.find((d) => d.id === id);
+    if (!gone) return;
     doses = doses.filter((d) => d.id !== id);
+    undoDose = gone;
+    toast = "";
+    clearTimeout(toastTimer);
+    clearTimeout(undoTimer);
+    undoTimer = setTimeout(() => (undoDose = null), 7000);
+  }
+
+  function undoRemove() {
+    if (!undoDose) return;
+    doses = [...doses, undoDose];
+    undoDose = null;
+    clearTimeout(undoTimer);
   }
 
   function clearAll() {
+    undoDose = null;
     doses = [];
   }
 
@@ -508,7 +531,7 @@
             <span>{d.mg.toFixed(1)} mg taken · {ago(d.at)}</span>
           </div>
           <div class="now">{remaining(d, now).toFixed(2)} <small>mg left</small></div>
-          <button class="iconbtn" title="remove" onclick={() => remove(d.id)}>✕</button>
+          <button class="iconbtn rm" title="remove this drink" aria-label="remove {d.name}" onclick={() => remove(d.id)}>✕</button>
         </div>
       {/each}
     {/if}
@@ -536,4 +559,11 @@
   </footer>
 </div>
 
-<div class="toast {toast ? 'show' : ''}">{toast}</div>
+<div class="toast {toast || undoDose ? 'show' : ''} {undoDose ? 'undoing' : ''}">
+  {#if undoDose}
+    <span>removed {undoDose.name} · {undoDose.volume} ml</span>
+    <button class="undoBtn" onclick={undoRemove}>undo</button>
+  {:else}
+    {toast}
+  {/if}
+</div>
