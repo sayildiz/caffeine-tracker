@@ -23,6 +23,21 @@ A(t) = A0 * 0.5^(t / t_half)
   24-hour time
 - hover (or drag on touch) the curve to read the mg at any future time
 
+## Move state between devices
+
+Two ways, both client side:
+
+- **json file** — `download json` writes `caffeine-YYYY-MM-DD.json`; `import json` reads it back
+- **qr code** — `show qr` renders the same snapshot deflate-compressed as a QR; on the other
+  device hit `scan qr` and point the camera at it. The decoder loads only when you scan.
+
+Import **merges**: a drink already on the device (same name, size, mg and second) is not
+added twice. A device with no drinks adopts the sender's half-life and 12 h / 24 h setting;
+a device that already has drinks keeps its own.
+
+A full 40-day history (~300 drinks) still fits in one QR; past that the card tells you to
+use the file.
+
 ## No backend
 
 Everything lives in `localStorage` under `caffeine-tracker-v1`. There is no server,

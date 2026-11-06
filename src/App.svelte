@@ -1,4 +1,15 @@
 <script lang="ts">
+  import {
+    snapshot,
+    packQr,
+    unpackQr,
+    parseJson,
+    qrSvg,
+    mergeDoses,
+    downloadJson,
+    type Snapshot,
+  } from "./share";
+
   type Dose = { id: string; name: string; volume: number; mg: number; at: number };
   type Store = { doses: Dose[]; halfLife: number; horizon: number };
 
@@ -41,6 +52,22 @@
   let cName = $state("");
   let cVol = $state<number | "">("");
   let cMg = $state<number | "">("");
+
+  // ---- move the state between devices
+  let qrCode = $state<null | { svg: string; text: string }>(null);
+  let qrBusy = $state(false);
+  let qrNote = $state("");
+  let fileInput: HTMLInputElement;
+  let camOpen = $state(false);
+  let camErr = $state("");
+  let videoEl: HTMLVideoElement;
+  let camStream: MediaStream | null = null;
+  let camRaf = 0;
+  // the qr decoder is ~120 kB, only pull it in when someone actually scans
+  type Decoder = (data: Uint8ClampedArray, w: number, h: number, o?: any) => { data: string } | null;
+  let decoder: Promise<Decoder> | null = null;
+  const getDecoder = () =>
+    (decoder ??= import("jsqr").then((m) => m.default as unknown as Decoder));
 
   // ---- log time: defaults to now, can be set back in time
   function toLocalInput(ts: number) {
@@ -322,6 +349,133 @@
     doses = [];
   }
 
+  // ---- export / import: json file or qr code
+  function say(msg: string, ms = 2600) {
+    toast = msg;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (toast = ""), ms);
+  }
+
+  function currentSnap() {
+    return snapshot(doses, halfLife, horizon);
+  }
+
+  function exportFile() {
+    const name = downloadJson(currentSnap());
+    say(`exported ${doses.length} drinks · ${name}`, 3400);
+  }
+
+  async function toggleQr() {
+    if (qrCode) {
+      qrCode = null;
+      return;
+    }
+    qrBusy = true;
+    qrNote = "";
+    const text = await packQr(currentSnap());
+    const svg = await qrSvg(text);
+    qrBusy = false;
+    if (!svg) {
+      qrNote = `${doses.length} drinks is too much for one QR code — use the json file`;
+      return;
+    }
+    qrCode = { svg, text };
+  }
+
+  // a fresh device takes the sender's settings; an existing one keeps its own
+  function adopt(snap: Snapshot) {
+    if (doses.length === 0) {
+      halfLife = snap.halfLife;
+      horizon = snap.horizon;
+    }
+  }
+
+  function applySnap(snap: Snapshot, verb: string) {
+    if (!snap.doses.length) {
+      say(`${verb} file has no drinks`);
+      return;
+    }
+    const merged = mergeDoses(doses, snap.doses, uid);
+    doses = merged.doses;
+    const skipped = snap.doses.length - merged.added;
+    say(`${verb} ${merged.added} new drink${merged.added === 1 ? "" : "s"}${skipped ? ` · ${skipped} already here` : ""}`, 3400);
+  }
+
+  async function onFile(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const f = input.files?.[0];
+    input.value = "";
+    if (!f) return;
+    const snap = parseJson(await f.text());
+    if (!snap) {
+      say("that file is not a caffeine export");
+      return;
+    }
+    adopt(snap);
+    applySnap(snap, "imported");
+  }
+
+  async function openCam() {
+    camErr = "";
+    camOpen = true;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      camErr = "this browser has no camera API — import the json file instead";
+      return;
+    }
+    try {
+      const jsQR = await getDecoder();
+      camStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false,
+      });
+      videoEl.srcObject = camStream;
+      await videoEl.play();
+      camLoop(jsQR);
+    } catch {
+      camErr = "no camera — allow access and use https (or import the json file)";
+    }
+  }
+
+  function closeCam() {
+    cancelAnimationFrame(camRaf);
+    camStream?.getTracks().forEach((t) => t.stop());
+    camStream = null;
+    camOpen = false;
+    camErr = "";
+  }
+
+  function camLoop(jsQR: Decoder) {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return;
+    const step = () => {
+      if (!camOpen) return;
+      if (videoEl?.readyState >= 2 && videoEl.videoWidth) {
+        const scale = Math.min(1, 720 / videoEl.videoWidth);
+        canvas.width = Math.round(videoEl.videoWidth * scale);
+        canvas.height = Math.round(videoEl.videoHeight * scale);
+        ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const hit = jsQR(img.data, img.width, img.height, { inversionAttempts: "attemptBoth" });
+        if (hit?.data) {
+          unpackQr(hit.data).then((snap) => {
+            if (!snap) {
+              camErr = "that QR is not a caffeine code";
+              camRaf = requestAnimationFrame(step);
+              return;
+            }
+            adopt(snap);
+            applySnap(snap, "scanned");
+            closeCam();
+          });
+          return;
+        }
+      }
+      camRaf = requestAnimationFrame(step);
+    };
+    camRaf = requestAnimationFrame(step);
+  }
+
   const customValid = $derived(
     cName.trim().length > 0 && Number(cVol) > 0 && Number(cMg) > 0
   );
@@ -557,6 +711,27 @@
     {/if}
   </div>
 
+  <h2>move between devices</h2>
+  <div class="card sync">
+    <div class="syncRow">
+      <button class="tab" onclick={exportFile}>download json</button>
+      <button class="tab" onclick={toggleQr} disabled={qrBusy}>{qrCode ? "hide qr" : qrBusy ? "building…" : "show qr"}</button>
+      <button class="tab" onclick={() => fileInput.click()}>import json</button>
+      <button class="tab" onclick={openCam}>scan qr</button>
+      <input class="filehide" type="file" accept=".json,application/json" bind:this={fileInput} onchange={onFile} />
+    </div>
+    {#if qrCode}
+      <div class="qrBox">
+        <div class="qrPic">{@html qrCode.svg}</div>
+        <p class="hint">{doses.length} drinks · {qrCode.text.length} characters. Point the other device's
+          camera at it, or import the json file. Nothing leaves the browser.</p>
+      </div>
+    {/if}
+    {#if qrNote}<p class="hint warn">{qrNote}</p>{/if}
+    <p class="hint">import merges: drinks you already have here are not doubled, and this
+      device keeps its own half-life and clock setting unless it is empty.</p>
+  </div>
+
   <div class="card">
     <div class="row">
       <span>half-life <b>{halfLife.toFixed(1)} h</b></span>
@@ -577,6 +752,14 @@
   <footer>
     Estimates only — not medical advice. Nicotine, hormonal birth control and grapefruit slow clearance.
   </footer>
+</div>
+
+<div class="scan {camOpen ? 'on' : ''}">
+  <div class="scanCard">
+    <video bind:this={videoEl} playsinline muted></video>
+    <div class="scanHint">{camErr || "point the camera at the qr code"}</div>
+    <button class="tab" onclick={closeCam}>close</button>
+  </div>
 </div>
 
 <div class="toast {toast || undoDose ? 'show' : ''} {undoDose ? 'undoing' : ''}">

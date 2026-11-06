@@ -664,3 +664,78 @@ input:focus-visible {
   .peak { grid-template-columns: 1fr auto; }
   .peak .drop { grid-column: span 2; }
 }
+
+/* ---------- move between devices ---------- */
+.syncRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.syncRow .tab {
+  border: 1px solid var(--line);
+  background: #0d0a18;
+  padding: 6px 11px;
+}
+.syncRow .tab:hover:not(:disabled) { border-color: var(--line2); }
+.syncRow .tab:disabled { opacity: 0.45; cursor: default; }
+.filehide { display: none; }
+
+.qrBox {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-top: 14px;
+}
+.qrPic {
+  flex: 0 0 172px;
+  background: #fff;
+  border-radius: 12px;
+  padding: 6px;
+  line-height: 0;
+}
+.qrPic svg { width: 100%; height: auto; display: block; }
+.qrBox .hint { margin-top: 0; flex: 1; }
+
+.hint.warn { color: #fca5a5; }
+
+.scan {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 4, 18, 0.84);
+  backdrop-filter: blur(6px);
+}
+.scan.on { display: flex; }
+.scanCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  background: var(--card);
+  border: 1px solid var(--line2);
+  border-radius: 16px;
+  box-shadow: 0 26px 60px rgba(4, 0, 14, 0.7);
+}
+.scanCard video {
+  width: min(78vw, 320px);
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 12px;
+  background: #000;
+}
+.scanHint {
+  font-size: 11px;
+  color: var(--dim);
+  max-width: 300px;
+  text-align: center;
+  line-height: 1.5;
+}
+
+@media (max-width: 520px) {
+  .qrBox { flex-direction: column; align-items: flex-start; }
+  .qrPic { align-self: center; }
+}
