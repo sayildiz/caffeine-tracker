@@ -18,7 +18,9 @@ A(t) = A0 * 0.5^(t / t_half)
 - half-life is selectable, 3-8 h (default 5 h; 3-4 h fast metabolizer, 7-8 h slow /
   pregnancy / some medications)
 - total in the body is the sum of every dose still decaying, recomputed every 50 ms
-- the projection curve is the same formula sampled every 6 min over 12 h
+- the projection curve is the same formula sampled over 12 h or 24 h (picker in the
+  card header); that same 12 h / 24 h setting switches every clock between AM/PM and
+  24-hour time
 - hover (or drag on touch) the curve to read the mg at any future time
 
 ## No backend

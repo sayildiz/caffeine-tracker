@@ -106,9 +106,18 @@
   const halfAt = $derived(atTime(total, total / 2 || 0.01));
   const clearAt = $derived(atTime(total, 20));
 
+  // clocks follow the 12 h / 24 h preference
+  function clock(ts: number) {
+    return new Date(ts).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: horizon !== 24,
+    });
+  }
+
   function fmtTime(ts: number) {
     const d = new Date(ts);
-    const hm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const hm = clock(ts);
     const day = d.toDateString();
     if (day === new Date(now).toDateString()) return hm;
     if (day === new Date(now - 24 * HOUR).toDateString()) return "yest " + hm;
@@ -195,7 +204,7 @@
 
   function fmtHistTime(ts: number) {
     const d = new Date(ts);
-    const hm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const hm = clock(d.getTime());
     if (range.ms <= 24.5 * HOUR) return hm;
     if (range.ms <= 8 * 24 * HOUR) {
       return d.toLocaleDateString([], { weekday: "short" }) + " " + hm;
@@ -281,7 +290,7 @@
     const at = whenAt();
     doses = [...doses, { id: uid(), name, volume, mg, at }];
     const past = Date.now() - at > 60000;
-    toast = `+${mg.toFixed(1)} mg · ${name} ${volume} ml${past ? " · " + new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}`;
+    toast = `+${mg.toFixed(1)} mg · ${name} ${volume} ml${past ? " · " + clock(at) : ""}`;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (toast = ""), 2200);
   }
