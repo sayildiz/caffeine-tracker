@@ -13,13 +13,14 @@
   const KEY = "caffeine-tracker-v1";
   const HOUR = 3_600_000;
   const GUIDELINE = 400;
+  const KEEP_DAYS = 40;
 
   function loadStore(): Store {
     try {
       const raw = localStorage.getItem(KEY);
       if (!raw) return { doses: [], halfLife: 5 };
       const p = JSON.parse(raw) as Store;
-      const cutoff = Date.now() - 36 * HOUR;
+      const cutoff = Date.now() - KEEP_DAYS * 24 * HOUR;
       const doses = (p.doses ?? []).filter((d) => d.at > cutoff);
       return { doses, halfLife: p.halfLife ?? 5 };
     } catch {
@@ -39,6 +40,27 @@
   let cVol = $state<number | "">("");
   let cMg = $state<number | "">("");
 
+  // ---- log time: defaults to now, can be set back in time
+  function toLocalInput(ts: number) {
+    const d = new Date(ts);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  let whenStr = $state(toLocalInput(Date.now()));
+  let whenCustom = $state(false);
+
+  function resetWhen() {
+    whenCustom = false;
+    whenStr = toLocalInput(Date.now());
+  }
+
+  function whenAt(): number {
+    if (!whenCustom) return Date.now();
+    const t = new Date(whenStr).getTime();
+    if (isNaN(t)) return Date.now();
+    return Math.min(t, Date.now());
+  }
+
   // ---- persistence
   $effect(() => {
     const data: Store = { doses, halfLife };
@@ -47,7 +69,13 @@
 
   // ---- clock
   $effect(() => {
-    const t = setInterval(() => (now = Date.now()), 50);
+    const t = setInterval(() => {
+      now = Date.now();
+      if (!whenCustom) {
+        const v = toLocalInput(now);
+        if (v !== whenStr) whenStr = v;
+      }
+    }, 50);
     return () => clearInterval(t);
   });
 
@@ -79,8 +107,11 @@
   function fmtTime(ts: number) {
     const d = new Date(ts);
     const hm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const sameDay = new Date(ts).toDateString() === new Date(now).toDateString();
-    return sameDay ? hm : "tmrw " + hm;
+    const day = d.toDateString();
+    if (day === new Date(now).toDateString()) return hm;
+    if (day === new Date(now - 24 * HOUR).toDateString()) return "yest " + hm;
+    if (day === new Date(now + 24 * HOUR).toDateString()) return "tmrw " + hm;
+    return d.toLocaleDateString([], { month: "short", day: "2-digit" }) + " " + hm;
   }
 
   function ago(ts: number) {
@@ -130,6 +161,107 @@
     return m < 60 ? `in ${m} min` : `in ${Math.floor(m / 60)} h ${m % 60} min`;
   }
 
+  function amountAt(t: number) {
+    let s = 0;
+    for (const d of doses) {
+      if (d.at > t) continue;
+      s += d.mg * Math.pow(0.5, (t - d.at) / HOUR / halfLife);
+    }
+    return s;
+  }
+
+  // ---- history windows + peaks
+  const RANGES = [
+    { key: "1d", label: "1 day", ms: 24 * HOUR },
+    { key: "3d", label: "3 days", ms: 3 * 24 * HOUR },
+    { key: "7d", label: "7 days", ms: 7 * 24 * HOUR },
+    { key: "30d", label: "1 month", ms: 30 * 24 * HOUR },
+  ] as const;
+  type RangeKey = (typeof RANGES)[number]["key"];
+  let rangeKey = $state<RangeKey>("1d");
+  const range = $derived(RANGES.find((r) => r.key === rangeKey)!);
+
+  function fmtDur(h: number) {
+    const m = Math.round(h * 60);
+    if (m < 60) return `${m} min`;
+    const rest = m % 60;
+    return rest ? `${Math.floor(m / 60)} h ${rest} min` : `${Math.floor(m / 60)} h`;
+  }
+
+  function fmtHistTime(ts: number) {
+    const d = new Date(ts);
+    const hm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    if (range.ms <= 24.5 * HOUR) return hm;
+    if (range.ms <= 8 * 24 * HOUR) {
+      return d.toLocaleDateString([], { weekday: "short" }) + " " + hm;
+    }
+    return d.toLocaleDateString([], { day: "2-digit", month: "short" });
+  }
+
+  const hist = $derived.by(() => {
+    const ms = range.ms;
+    const start = now - ms;
+    const W = 640, H = 170, padB = 18, top = 8;
+
+    const inWin = doses.filter((d) => d.at >= start && d.at <= now);
+    const peaks = inWin
+      .map((d) => {
+        const mg = amountAt(d.at);
+        const next = doses
+          .filter((x) => x.at > d.at + 1000)
+          .sort((a, b) => a.at - b.at)[0];
+        const troughAt = Math.min(next ? next.at : now, now);
+        const troughMg = amountAt(troughAt);
+        return {
+          id: d.id,
+          at: d.at,
+          mg,
+          name: d.name,
+          volume: d.volume,
+          troughMg,
+          dur: (troughAt - d.at) / HOUR,
+        };
+      })
+      .sort((a, b) => a.at - b.at);
+
+    const maxPeak = peaks.reduce((m, p) => Math.max(m, p.mg), 0);
+    const ymax = Math.max(5, maxPeak * 1.08);
+    const x = (t: number) => ((t - start) / ms) * W;
+    const y = (mg: number) => top + (1 - mg / ymax) * (H - padB - top);
+
+    // sample a uniform grid, plus the step edge at every dose so peaks are not missed
+    const tsSet = new Set<number>();
+    const N = 140;
+    for (let i = 0; i <= N; i++) tsSet.add(start + (i / N) * ms);
+    for (const d of doses) {
+      if (d.at > start && d.at <= now) {
+        tsSet.add(Math.max(start, d.at - 60000));
+        tsSet.add(d.at);
+      }
+    }
+    const times = [...tsSet].filter((t) => t >= start && t <= now).sort((a, b) => a - b);
+    const pts = times.map((t) => `${x(t).toFixed(1)},${y(amountAt(t)).toFixed(1)}`);
+    const line = "M" + pts.join(" L");
+    const area = `${line} L${W},${H - padB} L0,${H - padB} Z`;
+    const grid = [0.25, 0.5, 0.75, 1].map((f) => ({ y: y(ymax * f), mg: ymax * f }));
+    const totalMg = inWin.reduce((s, d) => s + d.mg, 0);
+    const days = ms / (24 * HOUR);
+
+    return { W, H, padB, top, line, area, grid, y0: y(0), x, y, ymax, start, ms, peaks, maxPeak, totalMg, days };
+  });
+
+  let histHover = $state<null | { frac: number; mg: number; ts: number; vx: number; vy: number }>(null);
+
+  function onHistHover(e: PointerEvent) {
+    const el = e.currentTarget as SVGSVGElement;
+    const r = el.getBoundingClientRect();
+    if (!r.width) return;
+    const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    const ts = hist.start + frac * hist.ms;
+    const mg = amountAt(ts);
+    histHover = { frac, mg, ts, vx: hist.x(ts), vy: hist.y(mg) };
+  }
+
   // ---- actions
   // crypto.randomUUID only exists in secure contexts (https/localhost),
   // so plain-http LAN access needs a fallback id.
@@ -141,8 +273,10 @@
 
   function addDrink(name: string, volume: number, mg100: number) {
     const mg = Math.round((volume / 100) * mg100 * 10) / 10;
-    doses = [...doses, { id: uid(), name, volume, mg, at: Date.now() }];
-    toast = `+${mg.toFixed(1)} mg · ${name} ${volume} ml`;
+    const at = whenAt();
+    doses = [...doses, { id: uid(), name, volume, mg, at }];
+    const past = Date.now() - at > 60000;
+    toast = `+${mg.toFixed(1)} mg · ${name} ${volume} ml${past ? " · " + new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}`;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (toast = ""), 2200);
   }
@@ -247,6 +381,80 @@
     </div>
   </div>
 
+  <div class="card hist">
+    <div class="cardHead">
+      <span class="label">history</span>
+      <div class="tabs">
+        {#each RANGES as r}
+          <button class="tab {rangeKey === r.key ? 'on' : ''}" onclick={() => (rangeKey = r.key)}>
+            {r.label}
+          </button>
+        {/each}
+      </div>
+    </div>
+
+    {#if hist.peaks.length === 0}
+      <div class="empty">No drinks in the last {range.label}. Set a log time below to add one in the past.</div>
+    {:else}
+      <div class="chartWrap">
+        <svg class="chart chart-h" viewBox="0 0 {hist.W} {hist.H}" preserveAspectRatio="none"
+             onpointermove={onHistHover} onpointerdown={onHistHover} onpointerleave={() => (histHover = null)}>
+          <defs>
+            <linearGradient id="gh" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#c9f24d" stop-opacity="0.24" />
+              <stop offset="100%" stop-color="#c9f24d" stop-opacity="0" />
+            </linearGradient>
+          </defs>
+          {#each hist.grid as g}
+            <line x1="0" x2={hist.W} y1={g.y} y2={g.y} stroke="#20261f" stroke-width="1" />
+            <text x="2" y={g.y - 4}>{g.mg.toFixed(0)}</text>
+          {/each}
+          <line x1="0" x2={hist.W} y1={hist.y0} y2={hist.y0} stroke="#2c342a" stroke-width="1" />
+          <path d={hist.area} fill="url(#gh)" />
+          <path d={hist.line} fill="none" stroke="#c9f24d" stroke-width="1.8" stroke-linecap="round" />
+          {#each hist.peaks as p (p.id)}
+            <line x1={hist.x(p.at)} x2={hist.x(p.at)} y1={hist.y(p.mg)} y2={hist.y0}
+                  stroke="#c9f24d" stroke-width="1" opacity="0.16" stroke-dasharray="2 3" />
+            <circle cx={hist.x(p.at)} cy={hist.y(p.mg)} r="3" fill="#0a0c0b" stroke="#c9f24d" stroke-width="1.6" />
+          {/each}
+          {#if histHover}
+            <line x1={histHover.vx} x2={histHover.vx} y1="0" y2={hist.H - hist.padB}
+                  stroke="#c9f24d" stroke-width="1" opacity="0.4" stroke-dasharray="3 3" />
+            <circle cx={histHover.vx} cy={histHover.vy} r="4.5" fill="#0a0c0b" stroke="#c9f24d" stroke-width="2" />
+          {/if}
+          <text x="0" y={hist.H - 4}>{fmtHistTime(hist.start)}</text>
+          <text x={hist.W * 0.5} y={hist.H - 4} text-anchor="middle">{fmtHistTime(hist.start + hist.ms * 0.5)}</text>
+          <text x={hist.W} y={hist.H - 4} text-anchor="end">now</text>
+        </svg>
+        {#if histHover}
+          <div class="tip" style="left: clamp(64px, {histHover.frac * 100}%, calc(100% - 64px))">
+            <b>{histHover.mg.toFixed(1)} mg</b>
+            <span>{fmtHistTime(histHover.ts)}</span>
+          </div>
+        {/if}
+      </div>
+
+      <div class="stats histStats">
+        <div class="stat"><span>highest peak</span><strong>{hist.maxPeak.toFixed(0)} mg</strong></div>
+        <div class="stat"><span>peaks</span><strong>{hist.peaks.length}</strong></div>
+        <div class="stat"><span>taken in {range.label}</span><strong>{hist.totalMg.toFixed(0)} mg</strong></div>
+      </div>
+
+      <div class="peaks">
+        {#each [...hist.peaks].reverse().slice(0, 8) as p (p.id)}
+          <div class="peak">
+            <span class="t">{fmtHistTime(p.at)}</span>
+            <b>{p.mg.toFixed(1)} mg</b>
+            <span class="drop">{p.name} {p.volume} ml · down to {p.troughMg.toFixed(1)} mg after {fmtDur(p.dur)}</span>
+          </div>
+        {/each}
+        {#if hist.peaks.length > 8}
+          <div class="peak more">+{hist.peaks.length - 8} older peaks</div>
+        {/if}
+      </div>
+    {/if}
+  </div>
+
   <div class="card limit">
     <div class="limitRow">
       <span>today vs. 400 mg guideline</span>
@@ -258,6 +466,16 @@
   </div>
 
   <h2>add a drink</h2>
+  <div class="when">
+    <span class="label">log time</span>
+    <input type="datetime-local" bind:value={whenStr} max={toLocalInput(Date.now())}
+           oninput={() => (whenCustom = true)} />
+    {#if whenCustom}
+      <button class="tab on" onclick={resetWhen}>now</button>
+    {:else}
+      <span class="whendim">watching the clock</span>
+    {/if}
+  </div>
   <div class="grid">
     {#each PRESETS as p}
       <button class="drink" onclick={() => addDrink(p.name, p.volume, p.mg100)}>
