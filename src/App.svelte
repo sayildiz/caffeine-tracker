@@ -714,7 +714,7 @@
   <h2>move between devices</h2>
   <div class="card sync">
     <div class="syncRow">
-      <button class="tab" onclick={exportFile}>download json</button>
+      <button class="tab" onclick={exportFile}>export json</button>
       <button class="tab" onclick={toggleQr} disabled={qrBusy}>{qrCode ? "hide qr" : qrBusy ? "building…" : "show qr"}</button>
       <button class="tab" onclick={() => fileInput.click()}>import json</button>
       <button class="tab" onclick={openCam}>scan qr</button>
