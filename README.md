@@ -1,0 +1,47 @@
+# caffeine
+
+Real-time caffeine tracker. Tap a drink, watch the mg count in your body decay live.
+
+**https://sametyildiz.dev/caffeine/**
+
+![dark acid-green UI with a live mg readout and a 12-hour decay curve](./screenshot.png)
+
+## How it works
+
+Caffeine follows first-order (exponential) elimination, so each dose decays on its own
+from the moment it was logged:
+
+```
+A(t) = A0 * 0.5^(t / t_half)
+```
+
+- half-life is selectable, 3-8 h (default 5 h; 3-4 h fast metabolizer, 7-8 h slow /
+  pregnancy / some medications)
+- total in the body is the sum of every dose still decaying, recomputed every 50 ms
+- the projection curve is the same formula sampled every 6 min over 12 h
+- hover (or drag on touch) the curve to read the mg at any future time
+
+## No backend
+
+Everything lives in `localStorage` under `caffeine-tracker-v1`. There is no server,
+no API and no database: `serve.ts` is only a static file server for local play.
+`dist/` is the whole app and can be dropped on any static host.
+
+## Stack
+
+Bun + Svelte 5, bundled with `Bun.build` and `bun-plugin-svelte` directly (no Vite).
+
+## Development
+
+```bash
+bun install
+bun run build     # -> dist/
+bun run start     # http://localhost:8099
+```
+
+## Deploy
+
+The site is assembled by the `sayildiz.github.io` repo: it checks out this repo,
+builds `dist/`, and copies it into `_site/caffeine/`. Pushing to `main` here fires a
+`repository_dispatch` (`caffeine-updated`) at the site repo, which rebuilds and
+redeploys GitHub Pages.

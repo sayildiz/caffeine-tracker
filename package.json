@@ -1,0 +1,14 @@
+{
+  "name": "caffeine-tracker",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "bun run build.ts",
+    "start": "bun run serve.ts"
+  },
+  "devDependencies": {
+    "bun-plugin-svelte": "^0.0.6",
+    "svelte": "^5.57.3"
+  }
+}
