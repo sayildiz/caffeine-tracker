@@ -12,6 +12,9 @@ export type Snapshot = {
 };
 
 const APP = "caffeine-tracker";
+// same retention the app enforces on load: older drinks are dropped on reload,
+// so importing them would look like they vanished
+const MAX_AGE = 40 * 24 * 3600_000;
 // QR version 40 / level L holds 2953 bytes; stay well inside that.
 const MAX_QR_CHARS = 2400;
 
@@ -69,12 +72,16 @@ function sanitize(input: unknown): Snapshot | null {
   const o = input as any;
   if (o.app !== APP || Number(o.v) !== 1 || !Array.isArray(o.doses)) return null;
   const doses: SnapDose[] = [];
+  const now = Date.now();
   for (const d of o.doses) {
     const name = String(d?.name ?? "").trim().slice(0, 40);
     const volume = Number(d?.volume);
     const mg = Number(d?.mg);
     const at = Number(d?.at);
     if (!name || !(volume > 0) || !(mg > 0) || !(at > 0)) continue;
+    // a device with a skewed clock can send future stamps: those would sit in the
+    // log contributing 0 mg, so drop them along with expired ones
+    if (at > now + 60_000 || at < now - MAX_AGE) continue;
     doses.push({ name, volume, mg, at });
   }
   const halfLife = Math.min(8, Math.max(3, Number(o.halfLife) || 5));

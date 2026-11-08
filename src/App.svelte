@@ -92,9 +92,19 @@
   }
 
   // ---- persistence
+  let storeWarned = false;
   $effect(() => {
     const data: Store = { doses, halfLife, horizon };
-    localStorage.setItem(KEY, JSON.stringify(data));
+    try {
+      localStorage.setItem(KEY, JSON.stringify(data));
+    } catch {
+      // private mode / full quota / storage disabled: keep the session usable and
+      // say it once instead of throwing on every tap
+      if (!storeWarned) {
+        storeWarned = true;
+        say("this browser refused local storage — drinks will be lost on reload", 5000);
+      }
+    }
   });
 
   // ---- clock
@@ -252,7 +262,9 @@
         const next = doses
           .filter((x) => x.at > d.at + 1000)
           .sort((a, b) => a.at - b.at)[0];
-        const troughAt = Math.min(next ? next.at : now, now);
+        // trough = the level just *before* the next drink, so it is that drink's
+        // starting point rather than its peak (a dose at exactly troughAt would be counted)
+        const troughAt = next ? next.at - 1 : now;
         const troughMg = amountAt(troughAt);
         return {
           id: d.id,
@@ -262,6 +274,8 @@
           volume: d.volume,
           troughMg,
           dur: (troughAt - d.at) / HOUR,
+          // the newest drink has no next dose yet, so its "drop" is just the level now
+          live: !next,
         };
       })
       .sort((a, b) => a.at - b.at);
@@ -317,6 +331,10 @@
     const mg = Math.round((volume / 100) * mg100 * 10) / 10;
     const at = whenAt();
     doses = [...doses, { id: uid(), name, volume, mg, at }];
+    // the undo bar owns the toast slot while it is up, so a new drink would be
+    // confirmed silently; drop the pending undo and show the add instead
+    undoDose = null;
+    clearTimeout(undoTimer);
     const past = Date.now() - at > 60000;
     toast = `+${mg.toFixed(1)} mg · ${name} ${volume} ml${past ? " · " + clock(at) : ""}`;
     clearTimeout(toastTimer);
@@ -353,6 +371,8 @@
   // ---- export / import: json file or qr code
   function say(msg: string, ms = 2600) {
     toast = msg;
+    undoDose = null;
+    clearTimeout(undoTimer);
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (toast = ""), ms);
   }
@@ -640,7 +660,9 @@
           <div class="peak">
             <span class="t">{fmtHistTime(p.at)}</span>
             <b>{p.mg.toFixed(1)} mg</b>
-            <span class="drop">{p.name} {p.volume} ml · down to {p.troughMg.toFixed(1)} mg after {fmtDur(p.dur)}</span>
+            <span class="drop">{p.name} {p.volume} ml · {p.live
+                ? `now ${p.troughMg.toFixed(1)} mg`
+                : `down to ${p.troughMg.toFixed(1)} mg after ${fmtDur(p.dur)}`}</span>
           </div>
         {/each}
         {#if hist.peaks.length > 8}
