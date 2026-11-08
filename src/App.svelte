@@ -585,7 +585,9 @@
       </defs>
       {#each chart.grid as g}
         <line x1={chart.padL} x2={chart.W} y1={g.y} y2={g.y} stroke="var(--line)" stroke-width="1" />
-        <text x={chart.padL - 7} y={g.y + 3} text-anchor="end">{g.mg.toFixed(0)}</text>
+        {#if chart.ymax >= 20}
+          <text x={chart.padL - 7} y={g.y + 3} text-anchor="end">{g.mg.toFixed(0)}</text>
+        {/if}
       {/each}
       <line x1={chart.padL} x2={chart.W} y1={chart.y0} y2={chart.y0} stroke="var(--line-strong)" stroke-width="1" />
       <path d={chart.area} fill="url(#g)" />
@@ -639,7 +641,9 @@
           </defs>
           {#each hist.grid as g}
             <line x1={hist.padL} x2={hist.W} y1={g.y} y2={g.y} stroke="var(--line)" stroke-width="1" />
-            <text x={hist.padL - 7} y={g.y + 3} text-anchor="end">{g.mg.toFixed(0)}</text>
+            {#if hist.ymax >= 20}
+              <text x={hist.padL - 7} y={g.y + 3} text-anchor="end">{g.mg.toFixed(0)}</text>
+            {/if}
           {/each}
           <line x1={hist.padL} x2={hist.W} y1={hist.y0} y2={hist.y0} stroke="var(--line-strong)" stroke-width="1" />
           <path d={hist.area} fill="url(#gh)" />
