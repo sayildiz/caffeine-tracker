@@ -14,6 +14,7 @@
   type Store = { doses: Dose[]; halfLife: number; horizon: number };
 
   const PRESETS = [
+    { name: "Coffee", volume: 240, mg100: 40, tint: "#a16207" },
     { name: "Energy Drink", volume: 250, mg100: 32, tint: "#c4b5fd" },
     { name: "Energy Drink", volume: 330, mg100: 32, tint: "#c4b5fd" },
     { name: "Energy Drink", volume: 500, mg100: 32, tint: "#c4b5fd" },
