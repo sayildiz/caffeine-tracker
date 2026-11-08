@@ -173,13 +173,13 @@
 
   // ---- chart
   const chart = $derived.by(() => {
-    const W = 640, H = 150, padB = 18, top = 8;
+    const W = 640, H = 150, padB = 18, padL = 28, top = 8;
     // snap the ceiling to a round step so edits (add / remove a drink) visibly
     // move the line instead of every re-render rescaling it to the same shape
     const raw = Math.max(total * 1.02, 5);
     const step = [5, 10, 20, 25, 50, 100, 200, 400].find((s) => raw <= s * 5) ?? 500;
     const ymax = Math.ceil(raw / step) * step;
-    const x = (h: number) => (h / horizon) * W;
+    const x = (h: number) => padL + (h / horizon) * (W - padL);
     const y = (mg: number) => top + (1 - mg / ymax) * (H - padB - top);
     const pts: string[] = [];
     const N = 120;
@@ -189,9 +189,9 @@
       pts.push(`${x(h).toFixed(1)},${y(mg).toFixed(1)}`);
     }
     const line = "M" + pts.join(" L");
-    const area = `${line} L${W},${H - padB} L0,${H - padB} Z`;
+    const area = `${line} L${W},${H - padB} L${padL},${H - padB} Z`;
     const grid = [0.25, 0.5, 0.75].map((f) => ({ y: y(ymax * f), mg: ymax * f }));
-    return { W, H, padB, line, area, grid, y0: y(0), x, y, ymax, dotY: y(total) };
+    return { W, H, padB, padL, line, area, grid, y0: y(0), x, y, ymax, dotY: y(total) };
   });
 
   // ---- chart hover readout
@@ -202,7 +202,9 @@
     const r = el.getBoundingClientRect();
     if (!r.width) return;
     const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
-    const h = frac * horizon;
+    // the left gutter belongs to the mg scale, so map the pointer onto the plot area
+    const plot = (frac * chart.W - chart.padL) / (chart.W - chart.padL);
+    const h = Math.min(horizon, Math.max(0, plot * horizon));
     const mg = total * Math.pow(0.5, h / halfLife);
     hover = { h, mg, ts: now + h * HOUR, frac, vx: chart.x(h), vy: chart.y(mg) };
   }
@@ -240,10 +242,13 @@
     return rest ? `${Math.floor(m / 60)} h ${rest} min` : `${Math.floor(m / 60)} h`;
   }
 
-  function fmtHistTime(ts: number) {
+  function fmtHistTime(ts: number, withDay = false) {
     const d = new Date(ts);
     const hm = clock(d.getTime());
-    if (range.ms <= 24.5 * HOUR) return hm;
+    // a 1-day window still reaches into yesterday: the peaks list says so, or the
+    // rows read out of order (a 3:30 PM row sitting after this morning's)
+    if (range.ms <= 24.5 * HOUR)
+      return withDay && d.toDateString() !== new Date().toDateString() ? `yest ${hm}` : hm;
     if (range.ms <= 8 * 24 * HOUR) {
       return d.toLocaleDateString([], { weekday: "short" }) + " " + hm;
     }
@@ -253,7 +258,7 @@
   const hist = $derived.by(() => {
     const ms = range.ms;
     const start = now - ms;
-    const W = 640, H = 170, padB = 18, top = 8;
+    const W = 640, H = 170, padB = 18, padL = 28, top = 8;
 
     const inWin = doses.filter((d) => d.at >= start && d.at <= now);
     const peaks = inWin
@@ -281,8 +286,11 @@
       .sort((a, b) => a.at - b.at);
 
     const maxPeak = peaks.reduce((m, p) => Math.max(m, p.mg), 0);
-    const ymax = Math.max(5, maxPeak * 1.08);
-    const x = (t: number) => ((t - start) / ms) * W;
+    // same round ceiling as the live chart, so the history axis reads 0/100/200 not 84/167/251
+    const rawMax = Math.max(maxPeak * 1.08, 5);
+    const peakStep = [5, 10, 20, 25, 50, 100, 200, 400].find((s) => rawMax <= s * 5) ?? 500;
+    const ymax = Math.ceil(rawMax / peakStep) * peakStep;
+    const x = (t: number) => padL + ((t - start) / ms) * (W - padL);
     const y = (mg: number) => top + (1 - mg / ymax) * (H - padB - top);
 
     // sample a uniform grid, plus the step edge at every dose so peaks are not missed
@@ -298,12 +306,12 @@
     const times = [...tsSet].filter((t) => t >= start && t <= now).sort((a, b) => a - b);
     const pts = times.map((t) => `${x(t).toFixed(1)},${y(amountAt(t)).toFixed(1)}`);
     const line = "M" + pts.join(" L");
-    const area = `${line} L${W},${H - padB} L0,${H - padB} Z`;
+    const area = `${line} L${W},${H - padB} L${padL},${H - padB} Z`;
     const grid = [0.25, 0.5, 0.75, 1].map((f) => ({ y: y(ymax * f), mg: ymax * f }));
     const totalMg = inWin.reduce((s, d) => s + d.mg, 0);
     const days = ms / (24 * HOUR);
 
-    return { W, H, padB, top, line, area, grid, y0: y(0), x, y, ymax, start, ms, peaks, maxPeak, totalMg, days };
+    return { W, H, padB, padL, top, line, area, grid, y0: y(0), x, y, ymax, start, ms, peaks, maxPeak, totalMg, days };
   });
 
   let histHover = $state<null | { frac: number; mg: number; ts: number; vx: number; vy: number }>(null);
@@ -313,7 +321,8 @@
     const r = el.getBoundingClientRect();
     if (!r.width) return;
     const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
-    const ts = hist.start + frac * hist.ms;
+    const plot = Math.min(1, Math.max(0, (frac * hist.W - hist.padL) / (hist.W - hist.padL)));
+    const ts = hist.start + plot * hist.ms;
     const mg = amountAt(ts);
     histHover = { frac, mg, ts, vx: hist.x(ts), vy: hist.y(mg) };
   }
@@ -515,8 +524,8 @@
 
 <div class="wrap">
   <header>
-    <div class="brand"><span class="mark"></span>caffeine<span class="k">live</span></div>
-    <div class="live"><i></i> tracking</div>
+    <div class="brand">caffeine<span class="k">intake log</span></div>
+    <div class="live">local only</div>
   </header>
 
   <section class="hero">
@@ -537,44 +546,52 @@
       {/if}
     </div>
 
+    <div class="scale {overLimit ? 'over' : ''}">
+      <div class="scaleHead">
+        <span><b>{todayMg.toFixed(0)} mg</b> today</span>
+        <span>{Math.round((todayMg / GUIDELINE) * 100)}% of the 400 mg guideline</span>
+      </div>
+      <div class="scaleLine">
+        <span class="scaleFill" style="width: {Math.min(100, (todayMg / GUIDELINE) * 100)}%"></span>
+      </div>
+      <div class="scaleTicks">
+        {#each [0, 100, 200, 300, 400] as t}<span>{t}</span>{/each}
+      </div>
+    </div>
+
     <div class="stats">
       <div class="stat"><span>50% gone</span><strong>{total > 0.01 ? fmtTime(halfAt) : "—"}</strong></div>
       <div class="stat"><span>under 20 mg</span><strong>{total > 0.01 ? fmtTime(clearAt) : "—"}</strong></div>
       <div class="stat"><span>consumed today</span><strong>{todayMg.toFixed(0)} mg</strong></div>
     </div>
-  </section>
 
-  <div class="card">
-    <div class="cardHead">
-      <div class="headLeft">
-        <span class="label">next {horizon} hours</span>
-        <div class="tabs">
-          {#each [12, 24] as h}
-            <button class="tab {horizon === h ? 'on' : ''}" onclick={() => (horizon = h)}>{h}h</button>
-          {/each}
-        </div>
+    <div class="chartHead">
+      <span class="label">next {horizon} hours</span>
+      <div class="tabs">
+        {#each [12, 24] as h}
+          <button class="tab {horizon === h ? 'on' : ''}" onclick={() => (horizon = h)}>{h} h</button>
+        {/each}
       </div>
-      <span class="label">peak {total.toFixed(0)} mg</span>
     </div>
     <div class="chartWrap">
+
     <svg class="chart" viewBox="0 0 {chart.W} {chart.H}" preserveAspectRatio="none"
          onpointermove={onHover} onpointerdown={onHover} onpointerleave={() => (hover = null)}>
       <defs>
         <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.28" />
+          <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.14" />
           <stop offset="100%" stop-color="var(--accent)" stop-opacity="0" />
         </linearGradient>
       </defs>
       {#each chart.grid as g}
-        <line x1="0" x2={chart.W} y1={g.y} y2={g.y} stroke="var(--line)" stroke-width="1" />
-        <text x="2" y={g.y - 4}>{g.mg.toFixed(0)}</text>
+        <line x1={chart.padL} x2={chart.W} y1={g.y} y2={g.y} stroke="var(--line)" stroke-width="1" />
+        <text x={chart.padL - 7} y={g.y + 3} text-anchor="end">{g.mg.toFixed(0)}</text>
       {/each}
-      <line x1="0" x2={chart.W} y1={chart.y0} y2={chart.y0} stroke="var(--line2)" stroke-width="1" />
+      <line x1={chart.padL} x2={chart.W} y1={chart.y0} y2={chart.y0} stroke="var(--line-strong)" stroke-width="1" />
       <path d={chart.area} fill="url(#g)" />
       <path d={chart.line} fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" />
-      <circle cx="0" cy={chart.dotY} r="4.5" fill="var(--accent)" />
-      <circle cx="0" cy={chart.dotY} r="9" fill="var(--accent)" opacity="0.18" />
-      <text x="0" y={chart.H - 4}>now</text>
+      <circle cx={chart.padL} cy={chart.dotY} r="3.5" fill="var(--accent)" />
+      <text x={chart.padL - 2} y={chart.H - 4}>now</text>
       {#each [0.25, 0.5, 0.75] as f}
         <text x={chart.W * f} y={chart.H - 4} text-anchor="middle">+{horizon * f}h</text>
       {/each}
@@ -584,7 +601,7 @@
               stroke="var(--accent)" stroke-width="1" opacity="0.4" stroke-dasharray="3 3" />
         <line x1="0" x2={chart.W} y1={hover.vy} y2={hover.vy}
               stroke="var(--accent)" stroke-width="1" opacity="0.22" stroke-dasharray="3 3" />
-        <circle cx={hover.vx} cy={hover.vy} r="4.5" fill="#141020" stroke="var(--accent)" stroke-width="2" />
+        <circle cx={hover.vx} cy={hover.vy} r="4.5" fill="var(--surface)" stroke="var(--accent)" stroke-width="2" />
       {/if}
     </svg>
     {#if hover}
@@ -594,7 +611,7 @@
       </div>
     {/if}
     </div>
-  </div>
+  </section>
 
   <div class="card hist">
     <div class="cardHead">
@@ -616,28 +633,28 @@
              onpointermove={onHistHover} onpointerdown={onHistHover} onpointerleave={() => (histHover = null)}>
           <defs>
             <linearGradient id="gh" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.24" />
+              <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.12" />
               <stop offset="100%" stop-color="var(--accent)" stop-opacity="0" />
             </linearGradient>
           </defs>
           {#each hist.grid as g}
-            <line x1="0" x2={hist.W} y1={g.y} y2={g.y} stroke="var(--line)" stroke-width="1" />
-            <text x="2" y={g.y - 4}>{g.mg.toFixed(0)}</text>
+            <line x1={hist.padL} x2={hist.W} y1={g.y} y2={g.y} stroke="var(--line)" stroke-width="1" />
+            <text x={hist.padL - 7} y={g.y + 3} text-anchor="end">{g.mg.toFixed(0)}</text>
           {/each}
-          <line x1="0" x2={hist.W} y1={hist.y0} y2={hist.y0} stroke="var(--line2)" stroke-width="1" />
+          <line x1={hist.padL} x2={hist.W} y1={hist.y0} y2={hist.y0} stroke="var(--line-strong)" stroke-width="1" />
           <path d={hist.area} fill="url(#gh)" />
           <path d={hist.line} fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" />
           {#each hist.peaks as p (p.id)}
             <line x1={hist.x(p.at)} x2={hist.x(p.at)} y1={hist.y(p.mg)} y2={hist.y0}
                   stroke="var(--accent)" stroke-width="1" opacity="0.16" stroke-dasharray="2 3" />
-            <circle cx={hist.x(p.at)} cy={hist.y(p.mg)} r="3" fill="#141020" stroke="var(--accent)" stroke-width="1.6" />
+            <circle cx={hist.x(p.at)} cy={hist.y(p.mg)} r="3" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.6" />
           {/each}
           {#if histHover}
             <line x1={histHover.vx} x2={histHover.vx} y1="0" y2={hist.H - hist.padB}
                   stroke="var(--accent)" stroke-width="1" opacity="0.4" stroke-dasharray="3 3" />
-            <circle cx={histHover.vx} cy={histHover.vy} r="4.5" fill="#141020" stroke="var(--accent)" stroke-width="2" />
+            <circle cx={histHover.vx} cy={histHover.vy} r="4.5" fill="var(--surface)" stroke="var(--accent)" stroke-width="2" />
           {/if}
-          <text x="0" y={hist.H - 4}>{fmtHistTime(hist.start)}</text>
+          <text x={hist.padL - 2} y={hist.H - 4}>{fmtHistTime(hist.start)}</text>
           <text x={hist.W * 0.5} y={hist.H - 4} text-anchor="middle">{fmtHistTime(hist.start + hist.ms * 0.5)}</text>
           <text x={hist.W} y={hist.H - 4} text-anchor="end">now</text>
         </svg>
@@ -658,7 +675,7 @@
       <div class="peaks">
         {#each [...hist.peaks].reverse().slice(0, 8) as p (p.id)}
           <div class="peak">
-            <span class="t">{fmtHistTime(p.at)}</span>
+            <span class="t">{fmtHistTime(p.at, true)}</span>
             <b>{p.mg.toFixed(1)} mg</b>
             <span class="drop">{p.name} {p.volume} ml · {p.live
                 ? `now ${p.troughMg.toFixed(1)} mg`
@@ -670,16 +687,6 @@
         {/if}
       </div>
     {/if}
-  </div>
-
-  <div class="card limit">
-    <div class="limitRow">
-      <span>today vs. 400 mg guideline</span>
-      <span>{todayMg.toFixed(0)} / {GUIDELINE} mg · {Math.round((todayMg / GUIDELINE) * 100)}%</span>
-    </div>
-    <div class="track">
-      <div class="fill {overLimit ? 'over' : ''}" style="width: {Math.min(100, (todayMg / GUIDELINE) * 100)}%"></div>
-    </div>
   </div>
 
   <h2>add a drink</h2>
@@ -709,14 +716,14 @@
 
   <h2>custom</h2>
   <div class="custom">
-    <input placeholder="drink name" bind:value={cName} />
-    <input type="number" placeholder="ml" bind:value={cVol} min="1" />
-    <input type="number" placeholder="mg / 100 ml" bind:value={cMg} min="1" step="0.1" />
+    <label class="field"><span>drink</span><input placeholder="name" bind:value={cName} /></label>
+    <label class="field"><span>volume</span><input type="number" placeholder="ml" bind:value={cVol} min="1" /></label>
+    <label class="field"><span>strength</span><input type="number" placeholder="mg / 100 ml" bind:value={cMg} min="1" step="0.1" /></label>
     <button class="primary" disabled={!customValid} onclick={addCustom}>Add</button>
   </div>
 
   <h2>log</h2>
-  <div class="card log">
+  <div class="log">
     {#if sorted.length === 0}
       <div class="empty">No drinks logged yet. Pick a preset above and watch the number fall.</div>
     {:else}
@@ -735,7 +742,7 @@
   </div>
 
   <h2>move between devices</h2>
-  <div class="card sync">
+  <div class="sync">
     <div class="syncRow">
       <button class="tab" onclick={exportFile}>export json</button>
       <button class="tab" onclick={toggleQr} disabled={qrBusy}>{qrCode ? "hide qr" : qrBusy ? "building…" : "show qr"}</button>
@@ -755,7 +762,8 @@
       device keeps its own half-life and clock setting unless it is empty.</p>
   </div>
 
-  <div class="card">
+  <h2>settings</h2>
+  <div class="settings">
     <div class="row">
       <span>half-life <b>{halfLife.toFixed(1)} h</b></span>
       <input type="range" min="3" max="8" step="0.5" bind:value={halfLife} />
@@ -765,9 +773,9 @@
       3–4 h is fast metabolism, 5–6 h typical, 7–8 h slow / pregnancy / some medications.
     </div>
     {#if doses.length}
-      <div class="row" style="margin-top:14px">
+      <div class="row">
         <span>saved locally in this browser</span>
-        <button class="iconbtn" style="width:auto;padding:0 10px;height:26px;font-size:11.5px" onclick={clearAll}>reset</button>
+        <button class="linkbtn" onclick={clearAll}>reset all</button>
       </div>
     {/if}
   </div>
