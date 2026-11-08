@@ -171,15 +171,41 @@
     return h + " h " + (m % 60) + " min ago";
   }
 
-  // ---- chart
+  // ---- chart geometry follows the rendered box
+  // preserveAspectRatio="none" on a fixed 640-wide viewBox squashed the axis
+  // labels horizontally on a 360 px phone; measure the box and draw in its pixels.
+  let liveBox = $state({ w: 640, h: 164 });
+  let histBox = $state({ w: 640, h: 186 });
+  let liveSvg = $state<SVGSVGElement>();
+  let histSvg = $state<SVGSVGElement>();
+
+  function measure(el: SVGSVGElement | undefined, box: { w: number; h: number }) {
+    if (!el) return;
+    const read = () => {
+      const w = Math.round(el.clientWidth);
+      const h = Math.round(el.clientHeight);
+      if (w > 0 && h > 0 && (w !== box.w || h !== box.h)) {
+        box.w = w;
+        box.h = h;
+      }
+    };
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }
+
+  $effect(() => measure(liveSvg, liveBox));
+  $effect(() => measure(histSvg, histBox));
+
   const chart = $derived.by(() => {
-    const W = 640, H = 150, padB = 18, top = 8;
+    const W = liveBox.w, H = liveBox.h, padB = 18, padL = 26, top = 8;
     // snap the ceiling to a round step so edits (add / remove a drink) visibly
     // move the line instead of every re-render rescaling it to the same shape
     const raw = Math.max(total * 1.02, 5);
     const step = [5, 10, 20, 25, 50, 100, 200, 400].find((s) => raw <= s * 5) ?? 500;
     const ymax = Math.ceil(raw / step) * step;
-    const x = (h: number) => (h / horizon) * W;
+    const x = (h: number) => padL + (h / horizon) * (W - padL);
     const y = (mg: number) => top + (1 - mg / ymax) * (H - padB - top);
     const pts: string[] = [];
     const N = 120;
@@ -189,9 +215,9 @@
       pts.push(`${x(h).toFixed(1)},${y(mg).toFixed(1)}`);
     }
     const line = "M" + pts.join(" L");
-    const area = `${line} L${W},${H - padB} L0,${H - padB} Z`;
+    const area = `${line} L${W},${H - padB} L${padL},${H - padB} Z`;
     const grid = [0.25, 0.5, 0.75].map((f) => ({ y: y(ymax * f), mg: ymax * f }));
-    return { W, H, padB, line, area, grid, y0: y(0), x, y, ymax, dotY: y(total) };
+    return { W, H, padB, padL, line, area, grid, y0: y(0), x, y, ymax, dotY: y(total) };
   });
 
   // ---- chart hover readout
@@ -202,7 +228,9 @@
     const r = el.getBoundingClientRect();
     if (!r.width) return;
     const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
-    const h = frac * horizon;
+    // the left gutter belongs to the mg scale, so map the pointer onto the plot
+    const plot = (frac * chart.W - chart.padL) / (chart.W - chart.padL);
+    const h = Math.min(horizon, Math.max(0, plot * horizon));
     const mg = total * Math.pow(0.5, h / halfLife);
     hover = { h, mg, ts: now + h * HOUR, frac, vx: chart.x(h), vy: chart.y(mg) };
   }
@@ -250,7 +278,7 @@
   const hist = $derived.by(() => {
     const ms = range.ms;
     const start = now - ms;
-    const W = 640, H = 170, padB = 18, top = 8;
+    const W = histBox.w, H = histBox.h, padB = 18, padL = 26, top = 8;
 
     const inWin = doses.filter((d) => d.at >= start && d.at <= now);
     // one row per drink: when it was logged, the body total it produced, and the
@@ -270,7 +298,7 @@
 
     const maxPeak = peaks.reduce((m, p) => Math.max(m, p.mg), 0);
     const ymax = Math.max(5, maxPeak * 1.08);
-    const x = (t: number) => ((t - start) / ms) * W;
+    const x = (t: number) => padL + ((t - start) / ms) * (W - padL);
     const y = (mg: number) => top + (1 - mg / ymax) * (H - padB - top);
 
     // sample a uniform grid, plus the step edge at every dose so peaks are not missed
@@ -286,12 +314,12 @@
     const times = [...tsSet].filter((t) => t >= start && t <= now).sort((a, b) => a - b);
     const pts = times.map((t) => `${x(t).toFixed(1)},${y(amountAt(t)).toFixed(1)}`);
     const line = "M" + pts.join(" L");
-    const area = `${line} L${W},${H - padB} L0,${H - padB} Z`;
+    const area = `${line} L${W},${H - padB} L${padL},${H - padB} Z`;
     const grid = [0.25, 0.5, 0.75, 1].map((f) => ({ y: y(ymax * f), mg: ymax * f }));
     const totalMg = inWin.reduce((s, d) => s + d.mg, 0);
     const days = ms / (24 * HOUR);
 
-    return { W, H, padB, top, line, area, grid, y0: y(0), x, y, ymax, start, ms, peaks, maxPeak, totalMg, days };
+    return { W, H, padB, padL, top, line, area, grid, y0: y(0), x, y, ymax, start, ms, peaks, maxPeak, totalMg, days };
   });
 
   let histHover = $state<null | { frac: number; mg: number; ts: number; vx: number; vy: number }>(null);
@@ -301,7 +329,8 @@
     const r = el.getBoundingClientRect();
     if (!r.width) return;
     const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
-    const ts = hist.start + frac * hist.ms;
+    const plot = Math.min(1, Math.max(0, (frac * hist.W - hist.padL) / (hist.W - hist.padL)));
+    const ts = hist.start + plot * hist.ms;
     const mg = amountAt(ts);
     histHover = { frac, mg, ts, vx: hist.x(ts), vy: hist.y(mg) };
   }
@@ -545,7 +574,7 @@
       <span class="label">peak {total.toFixed(0)} mg</span>
     </div>
     <div class="chartWrap">
-    <svg class="chart" viewBox="0 0 {chart.W} {chart.H}" preserveAspectRatio="none"
+    <svg class="chart" bind:this={liveSvg} viewBox="0 0 {chart.W} {chart.H}"
          onpointermove={onHover} onpointerdown={onHover} onpointerleave={() => (hover = null)}>
       <defs>
         <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
@@ -554,15 +583,15 @@
         </linearGradient>
       </defs>
       {#each chart.grid as g}
-        <line x1="0" x2={chart.W} y1={g.y} y2={g.y} stroke="var(--line)" stroke-width="1" />
-        <text x="2" y={g.y - 4}>{g.mg.toFixed(0)}</text>
+        <line x1={chart.padL} x2={chart.W} y1={g.y} y2={g.y} stroke="var(--line)" stroke-width="1" />
+        <text x={chart.padL - 5} y={g.y + 3} text-anchor="end">{g.mg.toFixed(0)}</text>
       {/each}
-      <line x1="0" x2={chart.W} y1={chart.y0} y2={chart.y0} stroke="var(--line2)" stroke-width="1" />
+      <line x1={chart.padL} x2={chart.W} y1={chart.y0} y2={chart.y0} stroke="var(--line2)" stroke-width="1" />
       <path d={chart.area} fill="url(#g)" />
       <path d={chart.line} fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" />
-      <circle cx="0" cy={chart.dotY} r="4.5" fill="var(--accent)" />
-      <circle cx="0" cy={chart.dotY} r="9" fill="var(--accent)" opacity="0.18" />
-      <text x="0" y={chart.H - 4}>now</text>
+      <circle cx={chart.padL} cy={chart.dotY} r="4.5" fill="var(--accent)" />
+      <circle cx={chart.padL} cy={chart.dotY} r="9" fill="var(--accent)" opacity="0.18" />
+      <text x={chart.padL} y={chart.H - 4}>now</text>
       {#each [0.25, 0.5, 0.75] as f}
         <text x={chart.W * f} y={chart.H - 4} text-anchor="middle">+{horizon * f}h</text>
       {/each}
@@ -570,7 +599,7 @@
       {#if hover}
         <line x1={hover.vx} x2={hover.vx} y1="0" y2={chart.H - chart.padB}
               stroke="var(--accent)" stroke-width="1" opacity="0.4" stroke-dasharray="3 3" />
-        <line x1="0" x2={chart.W} y1={hover.vy} y2={hover.vy}
+        <line x1={chart.padL} x2={chart.W} y1={hover.vy} y2={hover.vy}
               stroke="var(--accent)" stroke-width="1" opacity="0.22" stroke-dasharray="3 3" />
         <circle cx={hover.vx} cy={hover.vy} r="4.5" fill="#141020" stroke="var(--accent)" stroke-width="2" />
       {/if}
@@ -600,7 +629,7 @@
       <div class="empty">No drinks in the last {range.label}. Set a log time below to add one in the past.</div>
     {:else}
       <div class="chartWrap">
-        <svg class="chart chart-h" viewBox="0 0 {hist.W} {hist.H}" preserveAspectRatio="none"
+        <svg class="chart chart-h" bind:this={histSvg} viewBox="0 0 {hist.W} {hist.H}"
              onpointermove={onHistHover} onpointerdown={onHistHover} onpointerleave={() => (histHover = null)}>
           <defs>
             <linearGradient id="gh" x1="0" y1="0" x2="0" y2="1">
@@ -609,10 +638,10 @@
             </linearGradient>
           </defs>
           {#each hist.grid as g}
-            <line x1="0" x2={hist.W} y1={g.y} y2={g.y} stroke="var(--line)" stroke-width="1" />
-            <text x="2" y={g.y - 4}>{g.mg.toFixed(0)}</text>
+            <line x1={hist.padL} x2={hist.W} y1={g.y} y2={g.y} stroke="var(--line)" stroke-width="1" />
+            <text x={hist.padL - 5} y={g.y + 3} text-anchor="end">{g.mg.toFixed(0)}</text>
           {/each}
-          <line x1="0" x2={hist.W} y1={hist.y0} y2={hist.y0} stroke="var(--line2)" stroke-width="1" />
+          <line x1={hist.padL} x2={hist.W} y1={hist.y0} y2={hist.y0} stroke="var(--line2)" stroke-width="1" />
           <path d={hist.area} fill="url(#gh)" />
           <path d={hist.line} fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" />
           {#each hist.peaks as p (p.id)}
@@ -625,7 +654,7 @@
                   stroke="var(--accent)" stroke-width="1" opacity="0.4" stroke-dasharray="3 3" />
             <circle cx={histHover.vx} cy={histHover.vy} r="4.5" fill="#141020" stroke="var(--accent)" stroke-width="2" />
           {/if}
-          <text x="0" y={hist.H - 4}>{fmtHistTime(hist.start)}</text>
+          <text x={hist.padL} y={hist.H - 4}>{fmtHistTime(hist.start)}</text>
           <text x={hist.W * 0.5} y={hist.H - 4} text-anchor="middle">{fmtHistTime(hist.start + hist.ms * 0.5)}</text>
           <text x={hist.W} y={hist.H - 4} text-anchor="end">now</text>
         </svg>
