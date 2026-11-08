@@ -233,12 +233,6 @@
   let rangeKey = $state<RangeKey>("1d");
   const range = $derived(RANGES.find((r) => r.key === rangeKey)!);
 
-  function fmtDur(h: number) {
-    const m = Math.round(h * 60);
-    if (m < 60) return `${m} min`;
-    const rest = m % 60;
-    return rest ? `${Math.floor(m / 60)} h ${rest} min` : `${Math.floor(m / 60)} h`;
-  }
 
   function fmtHistTime(ts: number, withDay = false) {
     const d = new Date(ts);
@@ -259,29 +253,19 @@
     const W = 640, H = 170, padB = 18, top = 8;
 
     const inWin = doses.filter((d) => d.at >= start && d.at <= now);
+    // one row per drink: when it was logged, the body total it produced, and the
+    // dose itself. A "how far it fell by the next drink" figure was ambiguous —
+    // the number was the whole body's level, so a drink from yesterday looked like
+    // it decayed to today's total.
     const peaks = inWin
-      .map((d) => {
-        const mg = amountAt(d.at);
-        const next = doses
-          .filter((x) => x.at > d.at + 1000)
-          .sort((a, b) => a.at - b.at)[0];
-        // trough = the level just *before* the next drink, so it is that drink's
-        // starting point rather than its peak (a dose at exactly troughAt would be counted)
-        const troughAt = next ? next.at - 1 : now;
-        const troughMg = amountAt(troughAt);
-        return {
-          id: d.id,
-          at: d.at,
-          mg,
-          name: d.name,
-          volume: d.volume,
-          troughMg,
-          dur: (troughAt - d.at) / HOUR,
-          troughAt,
-          // the newest drink has no next dose yet, so its "drop" is just the level now
-          live: !next,
-        };
-      })
+      .map((d) => ({
+        id: d.id,
+        at: d.at,
+        mg: amountAt(d.at),
+        dose: d.mg,
+        name: d.name,
+        volume: d.volume,
+      }))
       .sort((a, b) => a.at - b.at);
 
     const maxPeak = peaks.reduce((m, p) => Math.max(m, p.mg), 0);
@@ -664,9 +648,7 @@
           <div class="peak">
             <span class="t">{fmtHistTime(p.at, true)}</span>
             <b>{p.mg.toFixed(1)} mg</b>
-            <span class="drop">{p.name} {p.volume} ml · {p.live
-                ? `now ${p.troughMg.toFixed(1)} mg`
-                : `falls to ${p.troughMg.toFixed(1)} mg by ${clock(p.troughAt)}`}</span>
+            <span class="drop">{p.name} {p.volume} ml · +{p.dose.toFixed(1)} mg</span>
           </div>
         {/each}
         {#if hist.peaks.length > 8}
