@@ -240,10 +240,13 @@
     return rest ? `${Math.floor(m / 60)} h ${rest} min` : `${Math.floor(m / 60)} h`;
   }
 
-  function fmtHistTime(ts: number) {
+  function fmtHistTime(ts: number, withDay = false) {
     const d = new Date(ts);
     const hm = clock(d.getTime());
-    if (range.ms <= 24.5 * HOUR) return hm;
+    // a 1-day window still reaches into yesterday: the peaks list says so, or a
+    // 3:30 PM row appears to come after this morning's
+    if (range.ms <= 24.5 * HOUR)
+      return withDay && d.toDateString() !== new Date().toDateString() ? `yest ${hm}` : hm;
     if (range.ms <= 8 * 24 * HOUR) {
       return d.toLocaleDateString([], { weekday: "short" }) + " " + hm;
     }
@@ -274,6 +277,7 @@
           volume: d.volume,
           troughMg,
           dur: (troughAt - d.at) / HOUR,
+          troughAt,
           // the newest drink has no next dose yet, so its "drop" is just the level now
           live: !next,
         };
@@ -658,11 +662,11 @@
       <div class="peaks">
         {#each [...hist.peaks].reverse().slice(0, 8) as p (p.id)}
           <div class="peak">
-            <span class="t">{fmtHistTime(p.at)}</span>
+            <span class="t">{fmtHistTime(p.at, true)}</span>
             <b>{p.mg.toFixed(1)} mg</b>
             <span class="drop">{p.name} {p.volume} ml · {p.live
                 ? `now ${p.troughMg.toFixed(1)} mg`
-                : `down to ${p.troughMg.toFixed(1)} mg after ${fmtDur(p.dur)}`}</span>
+                : `falls to ${p.troughMg.toFixed(1)} mg by ${clock(p.troughAt)}`}</span>
           </div>
         {/each}
         {#if hist.peaks.length > 8}

@@ -614,7 +614,7 @@ footer {
 .peaks { margin-top: 12px; }
 .peak {
   display: grid;
-  grid-template-columns: 78px 68px 1fr;
+  grid-template-columns: 100px 68px 1fr;
   gap: 12px;
   align-items: baseline;
   padding: 8px 0;
